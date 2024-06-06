@@ -19,6 +19,7 @@ class IRD():
     PAN_DETAILS_URL = 'https://ird.gov.np/statstics/getPanSearch'
     LOGIN_URL = "https://taxpayerportal.ird.gov.np/Handlers/E-SystemServices/Taxpayer/TaxPayerValidLoginHandler.ashx"
     RESOURCE_VATRETURN_URL = "https://taxpayerportal.ird.gov.np/Handlers/VAT/VatReturnsHandler.ashx?method=GetVatReturnList"
+    CURRENT_DATE_URL = "https://taxpayerportal.ird.gov.np/Handlers/Common/DateHandler.ashx?method=GetCurrentDate"
     
     def __init__(self, pan_no, password=''):
         self.pan_no = pan_no
@@ -86,7 +87,7 @@ class IRD():
 
     
     
-    def _check_login(self):
+    def _check_login(self) -> bool:
         login_payload = {
             "pan": self.pan_no,
             "TPName": self.pan_no,
@@ -107,9 +108,9 @@ class IRD():
         
         return True
     
-    def _get_resource_vatreturn(self):
+    def _get_resource_vatreturn(self) -> Optional[Dict[str, Any]]:
         
-         # Step 2: Make a GET request to the desired resource
+        # Step 2: Make a GET request to the desired resource
         resource_response = self.session.get(self.RESOURCE_VATRETURN_URL)
         if not resource_response.status_code == 200:
             return None
@@ -128,8 +129,6 @@ class IRD():
         # Create a dictionary to store the merged data
         merged_data = {}
         
-        final_data = {}
-
         for item in original_data:
             # Get the SubmissionNo from the original JSON response
             submission_no = item.get("SubmissionNo")
@@ -169,22 +168,25 @@ class IRD():
         return json_data
     
     
-    def get_vat_details(self):
+    def get_vat_details(self) -> Optional[Dict[str, Any]]:
         if not self._check_login():
             return None    
         return self._get_resource_vatreturn()
+    
+    def _get_curr_date(self) -> str:
+        #get today's date
+        dateresponse = requests.get(self.CURRENT_DATE_URL)
+        match = re.search(r'"NepaliDate":"(\d{4}\.\d{2}\.\d{2})"', dateresponse.text)
+        nepali_date = match.group(1)[:10]
+        return nepali_date
         
-    def get_etds_details(self):
+    def get_etds_details(self) -> Optional[list]:
         if not self._check_login():
             return None
-        #get today's date
-        dateresponse = requests.get("https://taxpayerportal.ird.gov.np/Handlers/Common/DateHandler.ashx?method=GetCurrentDate")
-        match = re.search(r'"NepaliDate":"(\d{4}\.\d{2}\.\d{2})"', dateresponse.text)
-        nepali_date = match.group(1)
-        nepali_date = nepali_date[:10]
-
+        
         # Check if the login was successful based on the response content
         base_url = "https://taxpayerportal.ird.gov.np/Handlers/TDS/GetTransactionHandler.ashx"
+        nepali_date = self._get_curr_date()
         # Define the payload data
         payload = {
             "method": "GetWithholderRecs",
@@ -197,11 +199,11 @@ class IRD():
         # Assign the value of "nepali_date" to the "ToDate" key in the payload
         payload["objWith"] = payload["objWith"].replace('"ToDate":"2080.07.04"', f'"ToDate":"{nepali_date}"')
         payload["objWith"] = payload["objWith"].replace('"WhPan":"304460847"', f'"WhPan":"{self.pan_no}"')
+        
         # Encode the payload as a query string
         encoded_payload = urllib.parse.urlencode(payload)
         resource_url = f"{base_url}?{encoded_payload}"
-        # Define the resource URL you want to access after login
-        print(resource_url)
+
         # Step 2: Make a GET request to the desired resource
         resource_response = self.session.get(resource_url)
         if resource_response.status_code == 200:
